@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Escáner de boletos</title>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; margin: 24px; }
+    #reader { max-width: 420px; margin: 18px auto; }
+    button { padding: 12px 18px; margin: 6px; font-size: 16px; }
+    #resultado { font-size: 20px; font-weight: bold; margin: 18px; }
+  </style>
+</head>
+<body>
+  <h1>Escáner de boletos</h1>
+  <p>Abre esta página desde el control de boletos y permite el uso de la cámara.</p>
+
+  <div id="resultado">Esperando conexión…</div>
+  <div id="reader"></div>
+  <button id="iniciar">Iniciar cámara</button>
+  <button id="siguiente" disabled>Escanear siguiente</button>
+
+  <script>
+    let scanner;
+    let esperandoResultado = false;
+
+    const resultado = document.getElementById("resultado");
+    const siguiente = document.getElementById("siguiente");
+
+    document.getElementById("iniciar").onclick = async () => {
+      if (!window.opener) {
+        resultado.textContent =
+          "Abre el escáner desde la página de Control de boletos.";
+        return;
+      }
+
+      try {
+        resultado.textContent = "Solicitando acceso a la cámara…";
+        scanner = new Html5Qrcode("reader");
+
+        const camaras = await Html5Qrcode.getCameras();
+        if (!camaras.length) throw new Error("No se encontró una cámara.");
+
+        const camara =
+          camaras.find(c => /back|rear|environment|trasera/i.test(c.label)) ||
+          camaras[0];
+
+        await scanner.start(
+          camara.id,
+          { fps: 10, qrbox: { width: 240, height: 240 } },
+          codigo => {
+            if (esperandoResultado) return;
+            esperandoResultado = true;
+            scanner.pause(true);
+            resultado.textContent = "Código leído; revisando el boleto…";
+            window.opener.postMessage(
+              { type: "TICKET_SCAN", code: codigo },
+              "*"
+            );
+          },
+          () => {}
+        );
+
+        resultado.textContent = "Cámara lista. Apunta al código QR.";
+      } catch (error) {
+        resultado.textContent = "No se pudo iniciar la cámara: " + error;
+      }
+    };
+
+    window.addEventListener("message", event => {
+      if (event.data && event.data.type === "TICKET_RESULT") {
+        resultado.textContent = event.data.message || "Resultado recibido.";
+        siguiente.disabled = false;
+      }
+    });
+
+    siguiente.onclick = () => {
+      esperandoResultado = false;
+      siguiente.disabled = true;
+      resultado.textContent = "Apunta al siguiente código QR.";
+      scanner.resume();
+    };
+  </script>
+</body>
+</html>
